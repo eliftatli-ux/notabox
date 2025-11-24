@@ -1,1 +1,86 @@
+// functions/generate-practice.js
+import { GoogleGenAI } from "@google/genai";
 
+// JSON Şeması (Yapının Garanti Edilmesi İçin)
+const practiceSchema = {
+  type: "object",
+  properties: {
+    term: {
+      type: "string",
+      description: "The UI terminology word or concept being tested."
+    },
+    question: {
+      type: "string",
+      description: "A multiple-choice question about the term or concept."
+    },
+    options: {
+      type: "array",
+      description: "An array of four possible answers.",
+      items: {
+        type: "string"
+      },
+      minItems: 4,
+      maxItems: 4
+    },
+    correct_answer_index: {
+      type: "integer",
+      description: "The zero-based index of the correct answer within the 'options' array (0 for the first option, 1 for the second, etc.)."
+    }
+  },
+  required: ["term", "question", "options", "correct_answer_index"]
+};
+
+// Netlify Fonksiyonunun Ana Giriş Noktası
+exports.handler = async (event, context) => {
+  // Sadece POST isteklerini kabul et
+  if (event.httpMethod !== 'POST') {
+    return { statusCode: 405, body: 'Method Not Allowed' };
+  }
+
+  let term = "Affordance"; // Varsayılan bir terim
+
+  try {
+    // Canva'dan gönderilen terimi al (Örn: 'breadcrumb')
+    const body = JSON.parse(event.body);
+    term = body.term || term; // Eğer Canva'dan terim gelmezse varsayılanı kullan
+
+  } catch (e) {
+    // JSON hatasını yok say
+  }
+
+  try {
+    // API anahtarı Netlify Ortam Değişkenlerinden (Environment Variables) alınacak
+    const ai = new GoogleGenAI({});
+
+    // AI Studio'da tasarladığımız Sistem Talimatı (Prompt)
+    const systemInstruction = "You are an expert quiz generator specializing in modern User Interface (UI) design and development terminology. Your task is to generate one multiple-choice quiz question. The output must strictly follow the provided JSON schema. Ensure the options are plausible and one is correct. The correct answer index must correspond to the correct option's position in the array.";
+
+
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash", // Hızlı ve verimli model
+      contents: `Generate a practice question about the UI Term: '${term}'.`,
+      config: {
+        systemInstruction: systemInstruction,
+        responseMimeType: "application/json",
+        responseJsonSchema: practiceSchema
+      },
+    });
+
+    const jsonString = response.text.trim();
+
+    // Başarılı cevabı JSON formatında Canva'ya geri gönder
+    return {
+      statusCode: 200,
+      headers: { "Content-Type": "application/json" },
+      body: jsonString,
+    };
+
+  } catch (error) {
+    console.error("Gemini API Error:", error);
+    // Hata durumunda güvenli bir hata mesajı gönder
+    return {
+      statusCode: 500,
+      body: JSON.stringify({ error: "Failed to generate AI content.", detail: error.message }),
+    };
+  }
+};
